@@ -1,0 +1,120 @@
+/*
+ * GridNoise.osl
+ * Author: Linden Stirk
+ * Date: Feb 14, 2022
+ * 
+ * Referenced from the The Book of Shaders by Patricio Gonzalez Vivo & Jen Lowe 
+ * https://thebookofshaders.com/12/
+ * 
+ * Built for use with Redshift for Maya
+ * For random tiling, plug in the outColor into the rotation channel of a UV transform node (e.g. UVPlacement2D)
+*/
+
+shader GridNoise2D
+[[ string label = "Grid Noise 2D",
+   string help = "Grid pattern with noisy edges",
+   string URL = "https://github.com/CGStirk/OSL",
+   string category = "Textures" ]]
+(
+    color color1 = color(1)
+    [[ string label = "Color 1",
+       string help = "Custom color control 1" ]],
+
+    color color2 = color(0)
+    [[ string label = "Color 2",
+       string help = "Custom color control 2" ]],
+    
+ 	float scale  = 1
+    [[ string label = "Scale", 
+       string help = "Tile pattern size", 
+       float min = 0.001, float max = 10 ]],
+	    // change the max if smaller cells are needed or connect a scalar input
+
+    float scaleMultiplier  = 0.1
+    [[ string label = "Scale Multiplier", 
+       string help = "Multiplier for finer control of pattern size", 
+       string page = "Extra control",
+       float min = 0.001, float max = 10 ]],
+	   // allows for finer control of cell pattern size
+
+    float noiseScale = 1
+    [[ string label = "Noise Scale ", 
+       string help = "Scale of the edge noise",
+       float min = 0, float max = 10 ]],
+    
+    float noiseAmount = 0.15
+    [[ string label = "Noise Amount ", 
+       string help = "Multiplier for edge noise",
+       float min = 0, float max = 10 ]],
+
+    int octaves = 1
+    [[ string label = "Noise Octaves ", 
+       string help = "Number of noise iterations",
+       int min = 1, int max = 20 ]],
+
+    float multiplier = 12345
+    [[ string label = "Offset Multiplier", 
+       string help = "Constant for getting a random point. Use tiny values to add more order.",
+       string page = "Extra control",
+       float min = 0.01, float max = 32767 ]],
+        // use a low value and adjust randPointX and randPointY to create more uniform patterns
+
+	float randPointX = 0.123 
+	[[ string label = "Random Point X",
+	   string help = "X coordinate for pattern generation",
+       string page = "Extra control",
+	   float min = 0.1, float max = 10 ]],
+
+	float randPointY = 0.456 
+	[[ string label = "Random Point Y",
+	   string help = "Y coordinate for pattern generation",
+       string page = "Extra control",
+	   float min = 0.1, float max = 10 ]],
+
+    point UV = point(u,v,0)
+    [[ string label = "UV World Space",
+       string help = "World Space UV (2D)" ]],
+       // connect a transform uv osl to control scale, rotation, and offset
+
+	output color outColor = color(0)
+)
+{
+    // Returns the fractional part of point coordinates
+    point fract(point p) {
+        point fraction = point(0);
+        float whole_x= floor(p[0]);
+        float whole_y = floor(p[1]);
+        fraction[0] = p[0] - whole_x;
+        fraction[1] = p[1] - whole_y;
+        fraction[2] = 0; // z coord not used
+        return fraction;
+    }
+
+    point getRandomPoint(point p, float x, float y) {
+        return fract(sin(point(dot(p, point(x,y,0)))) * multiplier);
+    }
+
+    point uv = UV / (scale * scaleMultiplier); 
+    float positionNoise = 0;
+
+    // noise iterations
+    if (noiseScale > 0 && noiseAmount > 0){
+        for (int o = 1; o < octaves + 1; o++) {
+            float n = noiseScale / (o * 4); // reduce noise size by 4 each iteration
+            int shift = o; // prevents spiky striations from the origin
+            positionNoise += noise("simplex", point((uv[0] + shift) / n, (uv[1] + shift) / n, 0)) * noiseAmount;
+        }
+    }
+
+    point int_uv = floor(uv);
+    point fract_uv = fract(uv);
+
+    // Pass in the UV and a random point to get the dot product 
+    point randomPoint = getRandomPoint(int_uv, randPointX, randPointY);
+	
+    float cellValue = randomPoint[0]; // take color from x
+    cellValue += smoothstep(0.9, 1, fract_uv[0] + positionNoise) + smoothstep(0.9, 1, fract_uv[1] + positionNoise) +
+                 smoothstep(0.9, 1, 1 - fract_uv[0] + positionNoise) + smoothstep(0.9, 1, 1 - fract_uv[1] + positionNoise); 
+
+	outColor = mix(color1, color2, cellValue);
+}

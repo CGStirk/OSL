@@ -1,0 +1,33 @@
+/*
+ * NormalRotationFix.osl
+ * Author: Linden Stirk
+ * Date: Jan 11, 2022
+ *  
+ * Notes:
+ * Built for use with Redshift for Maya
+ * The 'color' type is used here instead of the 'normal' type to keep the UI cleaner since RS for Maya
+ * always provides an 'outColor' channel, and Maya file nodes' output always say 'Out Color'.
+*/
+
+shader NormalRotationFix
+[[ string label = "Normal Rotation Fix",
+   string help = "Reverses normal map orientation based on UV rotation",
+   string URL = "https://github.com/CGStirk/OSL",
+   string category = "Utility" ]]
+(  
+
+  color inColor = color(0)
+  	[[  string label = "inColor (Normal Input)", 
+  		string help = "Connect the normal map" ]],
+
+  float degree = 0 
+  	[[  string label = "UV Rotation (Degrees)", 
+  		string help = "Rotation in degrees from a UV transform",
+        float min = 0, float max = 360 ]],
+
+  output color outColor = 0
+)
+{
+	// rotates the vectors of the normal map to remain the same as the UVs are rotated
+	outColor = rotate(inColor, radians(degree) * - 1, point(0.5,0.5,0), point(0.5,0.5,1));
+}

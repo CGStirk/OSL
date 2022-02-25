@@ -1,0 +1,44 @@
+/* 
+ * UVPlacement2D.osl
+ * Author: Linden Stirk
+ * Date: Jan 11, 2022
+ * 
+ * Notes: 
+ * Built for use with Redshift for Maya
+ * When rotating normal maps, use NormalRotationFix.osl to reverse the normal orienation based on the UV rotation
+ * Maya: Use this instead of the place2dTexture node (only tiling, rotation, and offset is currently support). 
+ * 3ds max: An OSL bitmap loader must be used because OSL nodes are not compatible with renderer-specific file loaders (e.g. Bitmap, Redshift Bitmap)
+ * C4D: This node is not necessary as the built-in texture node will suffice  
+*/
+
+shader UVPlacement2D
+[[ string label = "UV Placement 2D",
+   string help = "A partial replacement for Maya's place2dTexture with usable rotation",
+   string URL = "https://github.com/CGStirk/OSL",
+   string category = "Utility" ]]
+(     
+        vector repeatUV = vector(1,1,0)
+        [[ string label = "Repeat UV (Tiling)", 
+        string help = "Number of tiles" ]],      
+
+        vector offsetUV = 0
+        [[ string label = "Offset",
+        string help = "Transforms the tiles" ]],
+
+        float  rotateUV = 0
+        [[ string label = "Rotate UV (Degrees)",
+        string help = "Rotation angle in degrees", 
+        float min = 0, float max = 360 ]],
+
+        float  scaleUV = 1
+        [[ string label = "Global Scale",
+        string help = "",
+        float min = 0.1, float max = 100 ]],
+
+        // Use with the NormalRotationFix.osl to correct normal map orientation otherwise normal maps will not respect light direction 
+        output float outRotation = rotateUV, // passthrough
+        output point outUV = 0
+)
+{
+        outUV = ( repeatUV * ( rotate(point(u, v, 0) + offsetUV, radians(rotateUV), point(0.5,0.5,0.0), point(0.5,0.5,1.0)) ) ) / scaleUV;
+}

@@ -1,0 +1,198 @@
+/*
+ * DistortedVoronoi3D.osl
+ * Author: Linden Stirk
+ * Date: Feb 16, 2022
+ * 
+ * Voronoi algorithm referenced from the The Book of Shaders by Patricio Gonzalez Vivo & Jen Lowe 
+ * https://thebookofshaders.com/12/
+ * 
+ * Built for use with Redshift but also tested with V-Ray and Arnold
+ * For random tiling, plug in the outColor into the rotation channel of a UV transform node (e.g. UVPlacement2D)
+*/
+
+shader DistortedVoronoi3D
+[[ string label = "Distorted Voronoi 3D",
+   string help = "Voronoi cell pattern with noisy edges and a blobby mode",
+   string URL = "https://github.com/CGStirk/OSL",
+   string category = "Textures" ]]
+(
+    color color1 = color(1)
+    [[ string label = "Color 1",
+       string help = "Custom color control 1" ]],
+
+    color color2 = color(0)
+    [[ string label = "Color 2",
+       string help = "Custom color control 2" ]],
+       
+    int multicolored = 0
+    [[ string label = "Multicolored",
+       string help = "Randomly color the cells. Color 1 and Color 2 are ignored.",
+       string widget = "checkBox" ]],
+       // when enabled, Color 1 and Color 2 inputs are ignored
+
+	float scale  = 10
+    [[ string label = "Scale", 
+       string help = "Cell pattern size", 
+       float min = 0.001, float max = 10 ]],
+	   // change the max if smaller cells are needed or connect a scalar input
+
+	float scaleMultiplier  = 1
+    [[ string label = "Scale Multiplier", 
+       string help = "Multiplier for finer control of pattern size", 
+       string page = "Extra control",
+       float min = 0.001, float max = 10 ]],
+	   // allows for finer control of cell pattern size
+
+    int seed = 12345
+    [[ string label = "Seed", 
+       string help = "Seed for random cell pattern", 
+       int min = 1, int max = 32767 ]],
+
+    float offsetMultiplier = 6
+    [[ string label = "Offset Multiplier", 
+       string help = "Multiplier for the offset for pattern variations",
+       string page = "Extra control",
+       float min = 0.01, float max = 10 ]],
+       // really low values make the grid lose form squares. Connect to a color correction node for better visibility.
+
+    int blobby = 0
+    [[ string label = "Blobby (Metaballs)", 
+       string help = "Turns on or off metaball behavior",
+       string widget = "checkBox" ]],
+
+    float cellExpansion = 1.5
+    [[ string label = "Expansion ", 
+       string help = "Fill of each cell",
+       float min = -2, float max = 2 ]],
+
+    float noiseScale = 1
+    [[ string label = "Noise Scale ", 
+       string help = "Edge noise size",
+       float min = 0, float max = 10 ]],
+    
+    float noiseAmount = 0.15
+    [[ string label = "Noise Amount ", 
+       string help = "Multiplier for the edge noise size",
+       float min = 0, float max = 10 ]],
+
+    int octaves = 1
+    [[ string label = "Noise Octaves ", 
+       string help = "Number of noise iterations",
+       int min = 1, int max = 20 ]],
+
+    int noiseType = 2
+    [[ string label = "Noise Type ", 
+       string help = "Edge noise size",
+       string widget = "mapper",
+       string options = "cell:0|hash:1|simplex:2" ]],
+
+    float noiseTime = 0.001
+    [[ string label = "Time ", 
+       string help = "Animatable offset for the cell pattern. Use very small values" ]],
+
+    point UVW = transform("world", P)
+    [[ string label = "UVW World Space",
+       string help = "World Space UVW" ]],
+       // connect a transform uv osl to control scale, rotation, and offset
+
+    int objectUVW = 0
+    [[ string label = "Use Object Space UVW",
+       string help = "Object Space UVW",
+       string widget = "checkBox" ]],
+       // when enabled, inputs in UVW World Space are ignored
+
+	output color outColor = color(0)
+)
+{
+    // Returns the fractional part of point coordinates
+    point fract(point p) {
+        point fractional = point(0);
+        float whole_x= floor(p[0]);
+        float whole_y = floor(p[1]);
+        float whole_z = floor(p[2]);
+        fractional[0] = p[0] - whole_x;
+        fractional[1] = p[1] - whole_y;
+        fractional[2] = p[2] - whole_z;
+        return fractional;
+    }
+
+	point uvw = point(0);
+
+    if (objectUVW == 1) {
+        uvw = transform("object", P) / (scale * scaleMultiplier); // object space uvw
+    }
+    else {
+        uvw = UVW / (scale * scaleMultiplier); // world space uvw
+    }
+	
+    uvw += 0.0001; // prevents z-fighting on objects with no depth
+
+	point intUVW= floor(uvw);	
+	point fracUVW = fract(uvw);
+    float minDistance = 1.5; 
+	point minPoint = 0;     
+	float positionNoise = 0;
+
+    // noise iterations
+    if (noiseScale > 0 && noiseAmount > 0){
+        for (int o = 1; o < octaves + 1; o++) {
+            float n = noiseScale / (o * 4); // reduce noise size by 4 each iteration
+            int shift = o; // prevents spiky striations from the origin
+            if (noiseType == 0) {
+                positionNoise += noise("cell", point((uvw[0] + shift) / n, (uvw[1] + shift) / n, (uvw[2] + shift )/ n)) * noiseAmount;
+              }
+            else if (noiseType == 1) {
+                positionNoise += noise("hash", point((uvw[0] + shift) / n, (uvw[1] + shift) / n, (uvw[2] + shift )/ n)) * noiseAmount;
+              }
+            else {
+                positionNoise += noise("simplex", point((uvw[0] + shift) / n, (uvw[1] + shift) / n, (uvw[2] + shift )/ n)) * noiseAmount;
+             }
+        }
+    }
+
+    /* Voronoi cells */
+   	// Make 3D grid for points
+  	for (int x = -1; x <= 1; x++) {
+    	for (int y = -1; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+
+	            // Get neighboring cells
+			    point neighbor = point(float(x), float(y), float(z));
+	            
+	            // Get rand offset from current + neighbor
+	            point offset = fract(hashnoise(intUVW + neighbor, 1) * seed);
+	
+	            // Animatable offset plus midpoint value for better visibility
+	            offset = 0.5 + 0.5 * sin(offsetMultiplier * offset + noiseTime);
+	
+	            // Position of the cell with added noise
+	            point newPoint = neighbor + offset - fracUVW + positionNoise;
+	            
+	            // cell distance
+	            float cellDistance = length(newPoint);
+				
+				if(cellDistance < minDistance) {
+	                minDistance = cellDistance;
+	                minPoint = offset;
+	            }
+	            
+	           // blend circles
+	            if (blobby == 1) {
+	                minDistance = min(minDistance, minDistance * cellDistance);
+	            }
+            }
+		}
+	}
+	
+    // greyscale values of the cells
+	float cellValue = max(dot(minPoint, point(0.25,0.5,0.0)), step(cellExpansion + positionNoise, minDistance)) ;
+
+    if (multicolored == 1) {
+        outColor = color( max(dot(minPoint, point(1,0,0)), step(cellExpansion + positionNoise, minDistance)),
+                          max(dot(minPoint, point(0,1,0)), step(cellExpansion + positionNoise, minDistance)),
+                          max(dot(minPoint, point(0,0,1)), step(cellExpansion + positionNoise, minDistance)) );
+    }
+    else {
+      outColor = mix(color1, color2, cellValue); // mixes the cell values based on user Color 1 and Color 2 inputs
+    }
+}
